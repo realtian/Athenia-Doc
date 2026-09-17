@@ -1,5 +1,5 @@
 ---
-title: "Debug Endpoints for OpenClaw Diagnostics"
+title: "Debug Endpoints for OpenClaw Container Diagnostics"
 sidebarTitle: "Debug Endpoints"
 description: "Enable /debug/* routes to inspect container processes, view logs, and check versions. Requires DEBUG_ROUTES=true and Cloudflare Access authentication."
 ---
@@ -42,29 +42,35 @@ Returns a JSON array of every process running inside the container. Use this end
 **Example response:**
 
 ```json
-[
-  {
-    "id": "openclaw-gateway",
-    "name": "openclaw-gateway",
-    "status": "running",
-    "pid": 42,
-    "uptime": "3m 17s"
-  },
-  {
-    "id": "r2-sync",
-    "name": "r2-sync-cron",
-    "status": "running",
-    "pid": 87,
-    "uptime": "3m 10s"
-  },
-  {
-    "id": "startup",
-    "name": "start-openclaw.sh",
-    "status": "exited",
-    "pid": 1,
-    "uptime": null
-  }
-]
+{
+  "count": 3,
+  "processes": [
+    {
+      "id": "proc_abc123",
+      "command": "openclaw start",
+      "status": "running",
+      "startTime": "2025-07-10T08:01:22.000Z",
+      "endTime": null,
+      "exitCode": null
+    },
+    {
+      "id": "proc_def456",
+      "command": "r2-sync-cron.sh",
+      "status": "running",
+      "startTime": "2025-07-10T08:01:25.000Z",
+      "endTime": null,
+      "exitCode": null
+    },
+    {
+      "id": "proc_ghi789",
+      "command": "start-openclaw.sh",
+      "status": "completed",
+      "startTime": "2025-07-10T08:01:18.000Z",
+      "endTime": "2025-07-10T08:01:22.000Z",
+      "exitCode": 0
+    }
+  ]
+}
 ```
 
 The `id` field from each object is what you pass to `/debug/logs` in the next step.
@@ -78,47 +84,37 @@ Returns the captured log output for the process identified by `<process_id>`. Re
 **Example request:**
 
 ```
-GET /debug/logs?id=openclaw-gateway
+GET /debug/logs?id=proc_abc123
 ```
 
 **Example response:**
 
 ```json
 {
-  "id": "openclaw-gateway",
-  "logs": [
-    "[2025-07-10T08:01:22Z] INFO  Gateway starting on port 3000",
-    "[2025-07-10T08:01:23Z] INFO  R2 storage mounted at /root/.clawd",
-    "[2025-07-10T08:01:23Z] INFO  Restored 2 paired device(s) from R2 backup",
-    "[2025-07-10T08:01:24Z] INFO  WebSocket listener ready",
-    "[2025-07-10T08:01:24Z] INFO  Gateway ready"
-  ]
+  "status": "ok",
+  "process_id": "proc_abc123",
+  "process_status": "running",
+  "stdout": "[2025-07-10T08:01:22Z] INFO  Gateway starting\n[2025-07-10T08:01:23Z] INFO  R2 storage mounted\n[2025-07-10T08:01:23Z] INFO  Restored 2 paired device(s) from R2 backup\n[2025-07-10T08:01:24Z] INFO  WebSocket listener ready\n[2025-07-10T08:01:24Z] INFO  Gateway ready",
+  "stderr": ""
 }
 ```
 
 <Note>
-Logs are captured from the process's standard output and standard error streams. If a process exited unexpectedly, the last few log lines are usually the most useful for diagnosing the cause.
+Logs are captured from the process's standard output (`stdout`) and standard error (`stderr`) streams. If a process exited unexpectedly, the `stderr` field is usually the most useful for diagnosing the cause.
 </Note>
 
 ---
 
 ### `GET /debug/version`
 
-Returns version information for both the container base image and the OpenClaw build running inside it.
+Returns version information for the OpenClaw build and the Node.js runtime running inside the container.
 
 **Example response:**
 
 ```json
 {
-  "container": {
-    "image": "moltbot-sandbox",
-    "built": "2025-07-09T14:30:00Z",
-    "base": "debian:bookworm-slim"
-  },
-  "openclaw": {
-    "version": "0.9.4",
-    "commit": "a3f8c21"
-  }
+  "moltbot_version": "0.9.4",
+  "node_version": "v22.14.0"
 }
 ```
 
@@ -137,10 +133,10 @@ Use this endpoint to confirm that a fresh deployment picked up the version you e
   <Step title="Call /debug/logs with the process ID">
     Open `https://your-worker.workers.dev/debug/logs?id=<process_id>`, replacing `<process_id>` with the value you copied.
 
-    The response contains the captured log output for that process.
+    The response includes `stdout` and `stderr` fields containing the captured log output for that process.
   </Step>
   <Step title="Look for error lines">
-    Scan the log array for lines containing `ERROR`, `WARN`, or a non-zero exit code. These usually pinpoint the root cause of a startup or runtime failure.
+    Check the `stderr` field and scan `stdout` for lines containing `ERROR`, `WARN`, or references to a non-zero exit code. These usually pinpoint the root cause of a startup or runtime failure.
   </Step>
 </Steps>
 

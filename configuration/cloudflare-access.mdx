@@ -1,7 +1,7 @@
 ---
 title: "Protect Your OpenClaw Admin UI with Cloudflare Access"
 sidebarTitle: "Cloudflare Access"
-description: "Set up Cloudflare Access to protect the OpenClaw admin UI and API routes. Requires CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD secrets."
+description: "Set up Cloudflare Access to protect OpenClaw admin, API, and debug routes. Configure CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD to validate JWTs."
 ---
 
 OpenClaw's admin panel (`/_admin/`), API routes (`/api/*`), and debug endpoints (`/debug/*`) must be protected before you use them in production. Without authentication, anyone who knows your worker's URL could manage devices, inspect logs, or trigger restarts. Cloudflare Access provides that protection by placing an identity-aware authentication layer in front of those routes — users are redirected to a login page before they can reach the admin UI.
