@@ -1,0 +1,64 @@
+---
+title: "OpenClaw on Cloudflare: AI Assistant Without the Server"
+sidebarTitle: "Introduction"
+description: "OpenClaw on Cloudflare runs your personal AI assistant on Cloudflare Workers and Sandbox containers. No servers to manage, always-on, with multi-channel chat support."
+---
+
+OpenClaw on Cloudflare lets you run your own personal AI assistant at the edge — no VMs to provision, no infrastructure to maintain. Your assistant lives in a [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) container, proxied by a Cloudflare Worker, and is reachable from anywhere in the world within seconds of deployment.
+
+<Note>
+  OpenClaw on Cloudflare is an **experimental proof of concept**. It is not officially supported and may break without notice. Use it at your own risk and expect occasional rough edges.
+</Note>
+
+## What It Is
+
+[OpenClaw](https://github.com/openclaw/openclaw) is a personal AI assistant with a gateway architecture that connects to multiple chat platforms. This project packages OpenClaw to run inside a **Cloudflare Sandbox container** — a fully managed, always-on deployment that replaces the need to self-host on your own hardware or a rented server.
+
+A lightweight **Cloudflare Worker** sits in front of the container and handles incoming HTTP and WebSocket traffic. When a request arrives, the Worker proxies it to the **OpenClaw Gateway** running inside the Sandbox container. The container handles all AI inference calls, manages chat channel connections, and stores conversation context. Optional [Cloudflare R2](https://developers.cloudflare.com/r2/) storage keeps your data safe across container restarts.
+
+```
+Browser / Chat App
+        │
+        ▼
+ Cloudflare Worker          ← edge proxy, auth, static assets
+        │
+        ▼
+ Sandbox Container          ← OpenClaw Gateway process
+        │
+        ▼
+ AI Provider (Anthropic / OpenAI / Workers AI)
+```
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Control UI" icon="browser">
+    A web-based chat interface served directly from your Worker URL. Access it at `https://your-worker.workers.dev/?token=YOUR_TOKEN` — no separate front-end hosting needed.
+  </Card>
+  <Card title="Multi-Channel Chat" icon="comments">
+    Connect OpenClaw to **Telegram**, **Discord**, and **Slack** by setting a single bot token secret per channel. Your assistant responds across all connected platforms simultaneously.
+  </Card>
+  <Card title="Device Pairing" icon="shield-check">
+    Every new browser, CLI, or chat DM must be explicitly approved via the Admin UI before it can interact with your assistant — keeping uninvited users out by default.
+  </Card>
+  <Card title="R2 Persistence" icon="database">
+    Paired devices, conversation history, and configuration are backed up to Cloudflare R2 every five minutes. Data survives container restarts and cold starts.
+  </Card>
+  <Card title="Browser Automation" icon="robot">
+    A built-in Chrome DevTools Protocol (CDP) shim lets OpenClaw control a headless browser — useful for web scraping, screenshots, and automated browsing tasks.
+  </Card>
+  <Card title="AI Gateway Support" icon="cloud">
+    Route all AI inference through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for caching, rate limiting, usage analytics, and Unified Billing across providers.
+  </Card>
+</CardGroup>
+
+## Global Edge, Zero Ops
+
+Because your assistant runs on Cloudflare's network, you get low-latency access from wherever you are without managing uptime, SSL certificates, or reverse proxies. The Worker starts instantly; the Sandbox container persists between requests so there is no per-request cold start after the initial boot.
+
+## Next Steps
+
+Ready to get your assistant running?
+
+- **[Quickstart](/quickstart)** — Deploy OpenClaw in five commands.
+- **[Requirements](/requirements)** — Check what you need before you start, including the Cloudflare Workers Paid plan and an AI provider API key.

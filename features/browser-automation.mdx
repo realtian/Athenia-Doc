@@ -1,0 +1,182 @@
+---
+title: "Browser Automation with Cloudflare CDP Shim"
+sidebarTitle: "Browser Automation"
+description: "OpenClaw includes a Chrome DevTools Protocol shim for browser automation. Capture screenshots, navigate pages, and run scripts via the /cdp/* endpoints."
+---
+
+OpenClaw on Cloudflare includes a built-in Chrome DevTools Protocol (CDP) shim that lets your assistant control a headless Chrome browser. This unlocks a wide range of capabilities — capturing screenshots, navigating to URLs, scraping page content, executing JavaScript, and even recording video walkthroughs of multiple pages. The browser runs on Cloudflare's Browser Rendering infrastructure, so you don't need to provision or maintain any browser infrastructure yourself.
+
+## What You Can Do
+
+With browser automation enabled, your OpenClaw assistant can:
+
+- **Capture screenshots** of any public URL, saved as PNG files.
+- **Navigate pages** and interact with content programmatically via CDP commands.
+- **Scrape page content** by evaluating JavaScript expressions against a live page.
+- **Record videos** of scrolling through one or more URLs, stitched together with ffmpeg.
+- **Set custom viewports** to simulate different screen sizes.
+
+Browser automation requires **Cloudflare Browser Rendering**, which has a free tier — no extra subscription is needed beyond your existing Workers Paid plan.
+
+## Setup
+
+<Steps>
+  <Step title="Set your CDP secret">
+    Generate a secure random string and store it as the `CDP_SECRET` secret. Every request to the CDP endpoints must include this secret as a query parameter.
+
+    ```bash
+    npx wrangler secret put CDP_SECRET
+    # Enter a secure random string (e.g. output of: openssl rand -hex 32)
+    ```
+  </Step>
+  <Step title="Set your worker URL">
+    The browser skill needs to know the public URL of your deployed worker so it can connect back to the CDP endpoints.
+
+    ```bash
+    npx wrangler secret put WORKER_URL
+    # Enter: https://your-worker.workers.dev
+    ```
+  </Step>
+  <Step title="Redeploy">
+    ```bash
+    npm run deploy
+    ```
+
+    After deploying, the `/cdp/*` endpoints will be live and the built-in skills will be ready to use.
+  </Step>
+</Steps>
+
+## CDP Endpoints
+
+All CDP endpoints are available at the `/cdp/` path on your worker. Every request must include your `CDP_SECRET` as the `secret` query parameter.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/cdp/json/version` | GET | Returns browser version information |
+| `/cdp/json/list` | GET | Lists currently available browser targets |
+| `/cdp/json/new` | GET | Creates a new browser target (page) |
+| `/cdp/devtools/browser/{id}` | WebSocket | Opens a CDP WebSocket connection to the specified target |
+
+**Authentication:** append `?secret=<CDP_SECRET>` to every request. For example:
+
+```
+GET https://your-worker.workers.dev/cdp/json/version?secret=YOUR_CDP_SECRET
+```
+
+## Built-in Skills
+
+The container comes with pre-installed scripts in `/root/clawd/skills/cloudflare-browser/scripts/` that you can run directly inside the container or ask your assistant to invoke.
+
+### screenshot.js — Capture a screenshot
+
+```bash
+node /root/clawd/skills/cloudflare-browser/scripts/screenshot.js https://example.com output.png
+```
+
+Navigates to the given URL, waits for the page to render, and saves a PNG screenshot to the specified output path.
+
+### video.js — Record a multi-page video
+
+```bash
+node /root/clawd/skills/cloudflare-browser/scripts/video.js "https://site1.com,https://site2.com" output.mp4 --scroll
+```
+
+Visits each URL in the comma-separated list, captures frames while optionally scrolling the page, then stitches the frames into an MP4 video using ffmpeg.
+
+## Connecting to CDP via WebSocket
+
+If you want to write your own automation scripts or integrate with other tools, here is the basic pattern for opening a CDP WebSocket connection to your worker:
+
+```javascript
+const WebSocket = require('ws');
+
+const CDP_SECRET = process.env.CDP_SECRET;
+const WS_URL = `wss://your-worker.workers.dev/cdp?secret=${encodeURIComponent(CDP_SECRET)}`;
+
+const ws = new WebSocket(WS_URL);
+let targetId = null;
+let commandId = 0;
+
+// The worker creates a page target automatically on connect.
+// Listen for the Target.targetCreated event to get the targetId.
+ws.on('message', (data) => {
+  const msg = JSON.parse(data.toString());
+  if (msg.method === 'Target.targetCreated' && msg.params?.targetInfo?.type === 'page') {
+    targetId = msg.params.targetInfo.targetId;
+    console.log('Target ready:', targetId);
+  }
+});
+
+// Helper to send a CDP command and wait for its response
+function send(method, params = {}) {
+  return new Promise((resolve) => {
+    const id = ++commandId;
+    ws.send(JSON.stringify({ id, method, params }));
+    ws.on('message', function handler(data) {
+      const msg = JSON.parse(data.toString());
+      if (msg.id === id) {
+        ws.off('message', handler);
+        resolve(msg.result);
+      }
+    });
+  });
+}
+```
+
+## Key CDP Commands
+
+Once connected, you can send any standard CDP command. The most commonly used ones are:
+
+| Command | Description |
+|---------|-------------|
+| `Page.navigate` | Navigate the page to a URL |
+| `Page.captureScreenshot` | Capture the current viewport as PNG or JPEG |
+| `Runtime.evaluate` | Execute a JavaScript expression in the page context |
+| `Emulation.setDeviceMetricsOverride` | Set viewport width, height, and scale factor |
+
+### Example: Navigate and capture a screenshot
+
+```javascript
+// Navigate to a page
+await send('Page.navigate', { url: 'https://example.com' });
+
+// Wait for the page to render
+await new Promise(r => setTimeout(r, 3000));
+
+// Capture a screenshot (returns base64-encoded PNG data)
+const { data } = await send('Page.captureScreenshot', { format: 'png' });
+
+const fs = require('fs');
+fs.writeFileSync('output.png', Buffer.from(data, 'base64'));
+```
+
+### Example: Set a custom viewport
+
+```javascript
+await send('Emulation.setDeviceMetricsOverride', {
+  width: 1280,
+  height: 720,
+  deviceScaleFactor: 1,
+  mobile: false,
+});
+```
+
+### Example: Scroll the page
+
+```javascript
+await send('Runtime.evaluate', { expression: 'window.scrollBy(0, 300)' });
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="No browser target is created after connecting">
+    This is usually a race condition. Wait for the `Target.targetCreated` event with a reasonable timeout (5–10 seconds) before sending commands. Don't assume the target exists immediately after the WebSocket opens.
+  </Accordion>
+  <Accordion title="CDP commands time out">
+    The worker may be experiencing a cold start. Increase your command timeout to **30–60 seconds** for the first request after a period of inactivity. Subsequent commands in the same session will be much faster.
+  </Accordion>
+  <Accordion title="WebSocket connection hangs or closes immediately">
+    Verify that the `CDP_SECRET` you're passing in the query parameter exactly matches the `CDP_SECRET` secret set on your worker. A mismatch causes the connection to be rejected silently. Also ensure `WORKER_URL` is set correctly and that you've redeployed after making any changes.
+  </Accordion>
+</AccordionGroup>

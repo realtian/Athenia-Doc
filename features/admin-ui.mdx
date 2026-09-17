@@ -1,0 +1,63 @@
+---
+title: "Manage Your Assistant with the Admin UI"
+sidebarTitle: "Admin UI"
+description: "The OpenClaw Admin UI at /_admin/ lets you manage device pairing, trigger R2 backups, and restart the gateway — all from your browser."
+---
+
+The Admin UI is your browser-based control panel for managing your OpenClaw deployment. Once you've deployed to Cloudflare, you can reach it at the `/_admin/` path on your worker URL (e.g., `https://your-worker.workers.dev/_admin/`). From here you can check your R2 backup status, restart the gateway process, and approve or review every device that wants to connect to your assistant — all without touching the command line.
+
+## Accessing the Admin UI
+
+The Admin UI is protected by **Cloudflare Access**, so only authenticated users can reach it. When you visit `/_admin/`, Cloudflare's identity layer will prompt you to sign in (via email OTP, Google, GitHub, or whatever identity provider you've configured). After a successful sign-in you'll land directly on the Admin UI dashboard.
+
+<Note>
+  If you haven't configured Cloudflare Access yet, see the setup guide for instructions on enabling it for your worker. Without Access, the `/_admin/` route will not be reachable.
+</Note>
+
+## Admin UI Sections
+
+The Admin UI is divided into three sections, each covering a different aspect of your deployment.
+
+### R2 Storage Status
+
+This section shows whether R2 persistent storage is configured for your deployment.
+
+- **R2 configured** — a green indicator confirms that your R2 credentials are in place and the container can back up data.
+- **Last backup** — displays the timestamp of the most recent successful sync to R2. After a fresh deploy this may show "never" until the first automatic or manual backup runs.
+- **Backup Now** — click this button to trigger an immediate sync of your OpenClaw config directory to R2. Useful before restarting the container or making configuration changes.
+
+<Tip>
+  The automatic cron job backs up your data every 5 minutes, but hitting **Backup Now** before a planned restart gives you peace of mind that the very latest state is saved.
+</Tip>
+
+### Restart Gateway
+
+The **Restart Gateway** button kills the running OpenClaw gateway process inside the container and starts it again. Use this when:
+
+- You've changed configuration and want the gateway to pick it up without a full redeploy.
+- The gateway appears unresponsive and you want to recover without waiting for a container restart.
+
+<Warning>
+  Restarting the gateway briefly disconnects all active sessions. Any in-progress conversations will be interrupted. Paired devices will reconnect automatically once the gateway is back up.
+</Warning>
+
+### Device Pairing
+
+The Device Pairing section is where you review and approve incoming connection requests, as well as browse every device that has already been paired.
+
+**Pending approval requests**
+
+When a new browser tab or chat-platform DM first connects to your worker, it is held in a pending state until an admin approves it. The Admin UI shows a list of pending requests, each identified by a device ID and connection type. You can:
+
+- **Approve** a single device by clicking the approve button next to it.
+- **Approve All** to grant access to every pending request at once.
+
+**Paired devices**
+
+Below the pending queue you'll find a list of all devices that have already been approved. This gives you an audit trail of every client that can connect to your assistant.
+
+<Note>
+  The device list can take **10–15 seconds** to populate after the page loads. This delay is normal — the Admin UI must establish a WebSocket connection to the gateway to retrieve live device data. Wait a moment before assuming the list is empty.
+</Note>
+
+For a deeper look at how the pairing flow works end-to-end, see [Device Pairing](/features/device-pairing).

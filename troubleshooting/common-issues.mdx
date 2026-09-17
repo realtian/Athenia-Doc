@@ -1,0 +1,277 @@
+---
+title: "Troubleshooting Common OpenClaw Deployment Issues"
+sidebarTitle: "Common Issues"
+description: "Solutions for common OpenClaw on Cloudflare problems: slow starts, auth errors, R2 mounting, WebSocket failures, and Windows line-ending issues."
+---
+
+This page covers the most common issues you may encounter while deploying or operating OpenClaw on Cloudflare, along with step-by-step solutions for each. Whether you're seeing slow first requests, authentication errors, R2 storage problems, or WebSocket failures, you'll find a targeted fix below. If your issue isn't listed here, check the [Cloudflare Workers logs](#gateway-fails-to-start) for additional context.
+
+<AccordionGroup>
+
+<Accordion title="Slow first request — 1–2 minute wait">
+
+When you open the Control UI or send your first request after a fresh deployment (or after the container has been idle), you may wait **1–2 minutes** before getting a response. This is expected behaviour — it is simply the Cloudflare container cold-starting.
+
+**Why it happens:** Cloudflare needs to spin up the container image before your request can be handled. Subsequent requests in the same session are much faster because the container is already running.
+
+**To reduce cold starts:**
+
+Set the `SANDBOX_SLEEP_AFTER` secret to `never` so the container stays alive indefinitely:
+
+```bash
+npx wrangler secret put SANDBOX_SLEEP_AFTER
+# Enter: never
+npm run deploy
+```
+
+<Note>
+Keeping the container running at all times increases compute costs. If you use OpenClaw infrequently, consider a value like `10m` or `1h` instead, and accept the occasional cold start. See the [Container Lifecycle](/features/container-lifecycle) page for details.
+</Note>
+
+</Accordion>
+
+<Accordion title="`npm run dev` fails with an Unauthorized error">
+
+If you run `npm run dev` and see an **Unauthorized** error, Cloudflare Containers have not yet been enabled on your account.
+
+<Steps>
+  <Step title="Open the Containers dashboard">
+    Go to the [Cloudflare Containers dashboard](https://dash.cloudflare.com/?to=/:account/workers/containers) and enable Containers for your account.
+  </Step>
+  <Step title="Retry the dev command">
+    Once Containers are enabled, run `npm run dev` again.
+  </Step>
+</Steps>
+
+<Info>
+Cloudflare Containers require the **Workers Paid plan** ($5/month). If you haven't upgraded yet, you'll need to do so before Containers can be enabled.
+</Info>
+
+</Accordion>
+
+<Accordion title="Gateway fails to start">
+
+If the OpenClaw gateway process never starts (the Control UI is unreachable or returns errors immediately), the most common cause is a missing or misconfigured secret.
+
+**Check your secrets:**
+
+```bash
+npx wrangler secret list
+```
+
+Verify that at minimum `MOLTBOT_GATEWAY_TOKEN` and your AI API key (`ANTHROPIC_API_KEY` or the three `CLOUDFLARE_AI_GATEWAY_*` secrets) are present.
+
+**Check live logs:**
+
+```bash
+npx wrangler tail
+```
+
+This streams your Worker's logs in real time and will usually show the exact error causing the gateway to fail. Look for lines mentioning missing environment variables, crash exit codes, or startup timeouts.
+
+<Tip>
+If you recently changed a secret, make sure you ran `npm run deploy` afterwards — secrets are not picked up automatically by a running container.
+</Tip>
+
+</Accordion>
+
+<Accordion title="Config changes are not taking effect">
+
+If you update a secret or change configuration but the gateway continues to behave as before, the container image may be cached from a previous build.
+
+**Force a rebuild** by editing the cache-bust comment at the top of the `Dockerfile`:
+
+```dockerfile
+# Build cache bust: 2
+```
+
+Increment the number (or change the text in any way), save the file, and redeploy:
+
+```bash
+npm run deploy
+```
+
+This tells Cloudflare to rebuild the container image from scratch, picking up all configuration changes.
+
+</Accordion>
+
+<Accordion title="R2 storage is not mounting">
+
+If your paired devices or conversation history are lost after every container restart, R2 storage may not be mounting correctly.
+
+**Check that all three R2 secrets are set:**
+
+```bash
+npx wrangler secret list
+```
+
+You need all of the following:
+
+| Secret | Description |
+|---|---|
+| `R2_ACCESS_KEY_ID` | R2 API token access key |
+| `R2_SECRET_ACCESS_KEY` | R2 API token secret key |
+| `CF_ACCOUNT_ID` | Your Cloudflare account ID |
+
+If any are missing, add them:
+
+```bash
+npx wrangler secret put R2_ACCESS_KEY_ID
+npx wrangler secret put R2_SECRET_ACCESS_KEY
+npx wrangler secret put CF_ACCOUNT_ID
+npm run deploy
+```
+
+<Warning>
+R2 mounting only works in **production** (after `npm run deploy`). It does **not** work with `wrangler dev` local development. If you're testing locally, the absence of R2 is expected.
+</Warning>
+
+</Accordion>
+
+<Accordion title="Access denied on admin routes">
+
+If you visit `/_admin/` and see an **Access Denied** or authentication error, the Cloudflare Access secrets are either missing or incorrect.
+
+<Steps>
+  <Step title="Verify the secrets are set">
+    ```bash
+    npx wrangler secret list
+    ```
+    Confirm both `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` are present.
+  </Step>
+  <Step title="Re-add any missing secrets">
+    ```bash
+    npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+    # Enter your team domain, e.g. myteam.cloudflareaccess.com
+
+    npx wrangler secret put CF_ACCESS_AUD
+    # Enter the Application Audience (AUD) tag from your Access application
+    ```
+  </Step>
+  <Step title="Confirm your Access application is configured">
+    Go to your [Zero Trust dashboard](https://one.dash.cloudflare.com/) → **Access** → **Applications**, find your worker's application, and confirm:
+    - Your email address (or the correct identity provider) is on the allow list.
+    - The protected paths include `/_admin/*`.
+  </Step>
+  <Step title="Redeploy">
+    ```bash
+    npm run deploy
+    ```
+  </Step>
+</Steps>
+
+</Accordion>
+
+<Accordion title="Devices not appearing in the Admin UI">
+
+After approving a device or navigating to the device list in the Admin UI at `/_admin/`, the list may appear empty or take a long time to load.
+
+**This is expected.** Device list commands take **10–15 seconds** to complete due to WebSocket connection overhead between the Worker and the container. Simply wait a moment and then refresh the page — your devices should appear.
+
+<Tip>
+If the list is still empty after 20+ seconds, check that the gateway is running by inspecting logs with `npx wrangler tail`.
+</Tip>
+
+</Accordion>
+
+<Accordion title="WebSocket issues in local development">
+
+When running `npm run dev` locally, you may find that WebSocket connections to the gateway fail even though regular HTTP requests work fine.
+
+`wrangler dev` has known limitations with WebSocket proxying through the sandbox. HTTP-based flows (such as the REST API and admin UI) work correctly, but persistent WebSocket connections may not be proxied reliably.
+
+**Workaround:** Deploy to Cloudflare for full WebSocket functionality:
+
+```bash
+npm run deploy
+```
+
+Use `wrangler dev` only for iterating on configuration or HTTP-based features. For end-to-end testing of the Control UI and chat functionality, always test against your deployed production Worker.
+
+</Accordion>
+
+<Accordion title="Windows: Gateway fails with exit code 126 (permission denied)">
+
+On Windows machines, Git may check out shell scripts using **CRLF** line endings instead of the **LF** line endings expected by the Linux container. This causes `start-openclaw.sh` to fail immediately with **exit code 126** (permission denied / bad interpreter).
+
+**Fix option 1 — Configure Git globally:**
+
+```bash
+git config --global core.autocrlf input
+```
+
+Then re-clone the repository or run `git checkout` to refresh the affected files.
+
+**Fix option 2 — Add a `.gitattributes` file:**
+
+Add or update `.gitattributes` in the repository root with the following line:
+
+```
+* text=auto eol=lf
+```
+
+Commit this change and re-check out the repository so Git rewrites the line endings on disk.
+
+After applying either fix, redeploy:
+
+```bash
+npm run deploy
+```
+
+<Note>
+This issue only affects users on Windows. macOS and Linux users do not need to make these changes.
+</Note>
+
+</Accordion>
+
+<Accordion title='Control UI shows "pairing required" error'>
+
+If the Control UI displays a **pairing required** error, your device has connected to the gateway but has not yet been approved.
+
+**Every new device must be explicitly approved** before it can interact with the assistant. This is a security feature — it prevents unauthorised browsers or clients from accessing your personal AI.
+
+<Steps>
+  <Step title="Open the Admin UI">
+    Navigate to `/_admin/` on your deployed Worker URL. You will be prompted to authenticate via Cloudflare Access.
+  </Step>
+  <Step title="Find the pending device">
+    Under **Device Pairing**, you will see a list of pending requests. Locate the device you are trying to connect.
+  </Step>
+  <Step title="Approve the device">
+    Click **Approve** (or **Approve All** to approve all pending devices at once).
+  </Step>
+  <Step title="Reload the Control UI">
+    Return to the Control UI — the pairing error should be gone and the assistant should be ready to use.
+  </Step>
+</Steps>
+
+</Accordion>
+
+<Accordion title='Control UI shows "Invalid or missing token" error'>
+
+The Control UI requires a **gateway token** to authenticate your session. If the token is missing or incorrect, you will see this error.
+
+Pass your `MOLTBOT_GATEWAY_TOKEN` as a URL query parameter when opening the Control UI:
+
+```
+https://your-worker.workers.dev/?token=YOUR_GATEWAY_TOKEN
+```
+
+Replace `your-worker` with your actual Worker subdomain and `YOUR_GATEWAY_TOKEN` with the token you set during deployment.
+
+<Warning>
+Keep your gateway token private. Anyone who has it can access your Control UI. Do not share it or commit it to source control.
+</Warning>
+
+If you've lost your token, generate a new one and update the secret:
+
+```bash
+export MOLTBOT_GATEWAY_TOKEN=$(openssl rand -hex 32)
+echo "New token: $MOLTBOT_GATEWAY_TOKEN"
+echo "$MOLTBOT_GATEWAY_TOKEN" | npx wrangler secret put MOLTBOT_GATEWAY_TOKEN
+npm run deploy
+```
+
+</Accordion>
+
+</AccordionGroup>

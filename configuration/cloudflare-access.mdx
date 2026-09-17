@@ -1,0 +1,169 @@
+---
+title: "Protect Your OpenClaw Admin UI with Cloudflare Access"
+sidebarTitle: "Cloudflare Access"
+description: "Set up Cloudflare Access to protect the OpenClaw admin UI and API routes. Requires CF_ACCESS_TEAM_DOMAIN and CF_ACCESS_AUD secrets."
+---
+
+OpenClaw's admin panel (`/_admin/`), API routes (`/api/*`), and debug endpoints (`/debug/*`) must be protected before you use them in production. Without authentication, anyone who knows your worker's URL could manage devices, inspect logs, or trigger restarts. Cloudflare Access provides that protection by placing an identity-aware authentication layer in front of those routes — users are redirected to a login page before they can reach the admin UI.
+
+You need to complete two steps: enable Cloudflare Access on your worker, then tell the worker how to validate the resulting JWTs by setting two secrets.
+
+---
+
+## Why Cloudflare Access?
+
+When a user visits `/_admin/`, your worker checks for a valid Cloudflare Access JWT in the request. The worker validates this JWT using your **team domain** and **audience tag (AUD)**. Without both secrets set, the validation cannot complete and the admin UI will reject requests.
+
+The routes protected by Access are:
+
+| Route | Purpose |
+|-------|---------|
+| `/_admin/*` | Admin UI — device pairing, R2 status, gateway restart |
+| `/api/*` | Device management API used by the admin UI |
+| `/debug/*` | Debug endpoints (processes, logs, version) |
+
+The Control UI (`/?token=...`) and WebSocket endpoint (`/ws`) use the **gateway token** for authentication, not Cloudflare Access, so they remain reachable without an Access session.
+
+---
+
+## Method 1: Built-in workers.dev Access Integration (Easiest)
+
+Cloudflare offers a one-click Access integration directly from the Workers dashboard. This is the recommended approach for most deployments.
+
+<Steps>
+  <Step title="Open your Worker in the dashboard">
+    Go to the [Workers & Pages dashboard](https://dash.cloudflare.com/?to=/:account/workers-and-pages) and select your worker (e.g., `moltbot-sandbox`).
+  </Step>
+
+  <Step title="Enable Cloudflare Access">
+    In **Settings**, scroll to **Domains & Routes**. Find the `workers.dev` row, click the meatballs menu (`...`), and select **Enable Cloudflare Access**. A dialog will appear confirming that Access is now enabled.
+
+    <Note>
+      The **"Manage Cloudflare Access"** link inside this dialog may return a 404 — this is a known UI issue. Ignore it and proceed to the next step.
+    </Note>
+  </Step>
+
+  <Step title="Configure who can access">
+    Go to **Zero Trust** in the Cloudflare dashboard sidebar → **Access** → **Applications**. Find the application that was created for your worker. Open it and:
+
+    - Add your email address to the allow list, or
+    - Configure an identity provider such as Google, GitHub, or email one-time passcode (OTP).
+
+    Only identities matching your policy will be able to pass through to the admin UI.
+  </Step>
+
+  <Step title="Copy the AUD tag">
+    Still in the Access application settings, copy the **Application Audience (AUD)** tag. This is a unique identifier for your application — you'll use it as `CF_ACCESS_AUD` in the next step.
+  </Step>
+
+  <Step title="Find your team domain">
+    Open the [Zero Trust Dashboard](https://one.dash.cloudflare.com/) and go to **Settings** → **Custom Pages**. Your team domain is the subdomain shown before `.cloudflareaccess.com` — for example, if your team domain is `myteam.cloudflareaccess.com`, you would enter `myteam.cloudflareaccess.com` as the secret value.
+  </Step>
+
+  <Step title="Set the two Access secrets">
+    ```bash
+    # Your team domain, e.g. myteam.cloudflareaccess.com
+    npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+
+    # The AUD tag you copied from the Access application
+    npx wrangler secret put CF_ACCESS_AUD
+    ```
+  </Step>
+
+  <Step title="Redeploy">
+    ```bash
+    npm run deploy
+    ```
+
+    Once deployed, visiting `/_admin/` will redirect you to the Cloudflare Access login page. After authenticating, you'll be forwarded back to the admin UI with a valid session.
+  </Step>
+</Steps>
+
+---
+
+## Method 2: Manual Access Application (More Control)
+
+If you want to customise the Access policy in detail — for example, to restrict access to specific IP ranges, add multiple identity providers, or use a custom domain instead of workers.dev — you can create the Access application manually through the Zero Trust dashboard.
+
+<Steps>
+  <Step title="Open the Zero Trust dashboard">
+    Go to [one.dash.cloudflare.com](https://one.dash.cloudflare.com/) and navigate to **Access** → **Applications**.
+  </Step>
+
+  <Step title="Create a new Self-hosted application">
+    Click **Add an application** and choose **Self-hosted**. Give it a recognisable name such as `OpenClaw Admin`.
+  </Step>
+
+  <Step title="Set the application domain and paths">
+    Set the application domain to your worker's URL (e.g., `moltbot-sandbox.your-subdomain.workers.dev`). Then add the following path rules to protect only the admin routes:
+
+    - `/_admin/*`
+    - `/api/*`
+    - `/debug/*`
+
+    Leave the root path (`/`) unprotected — the Control UI uses a gateway token instead of Access.
+  </Step>
+
+  <Step title="Configure identity providers">
+    In the **Authentication** step, add the identity providers you want to allow. Common choices include:
+
+    - **One-time PIN** — sends a code to any email address (no account required)
+    - **Google** — sign in with a Google account
+    - **GitHub** — sign in with a GitHub account
+
+    You can combine multiple providers to give yourself flexibility.
+  </Step>
+
+  <Step title="Set access policies">
+    In the **Policies** step, add a rule that allows access only to your email address or your team's email domain. For a personal assistant, a single **Allow** rule matching your email is sufficient.
+  </Step>
+
+  <Step title="Copy the AUD tag">
+    After saving the application, open its settings and copy the **Application Audience (AUD)** tag.
+  </Step>
+
+  <Step title="Set the two Access secrets and redeploy">
+    ```bash
+    # Your team domain, e.g. myteam.cloudflareaccess.com
+    npx wrangler secret put CF_ACCESS_TEAM_DOMAIN
+
+    # The AUD tag from the Access application
+    npx wrangler secret put CF_ACCESS_AUD
+    ```
+
+    Then redeploy:
+
+    ```bash
+    npm run deploy
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Local Development
+
+You do not need Cloudflare Access configured for local development. Instead, set `DEV_MODE=true` in your `.dev.vars` file to skip Access authentication and bypass device pairing entirely:
+
+```bash
+# .dev.vars (never commit this file)
+DEV_MODE=true
+DEBUG_ROUTES=true  # optional, enables /debug/* routes
+```
+
+<Warning>
+  `DEV_MODE=true` removes all authentication from your worker. Only use it in local development via `wrangler dev`. Never deploy to Cloudflare with `DEV_MODE=true` set as a Wrangler secret.
+</Warning>
+
+---
+
+## Verifying Access Is Working
+
+After redeploying with both secrets set, visit `https://your-worker.workers.dev/_admin/` in a browser. You should be redirected to a Cloudflare Access login page. After authenticating with an identity that matches your policy, you'll be forwarded to the admin panel.
+
+If you see an **"Access denied"** error instead, double-check that:
+
+1. `CF_ACCESS_TEAM_DOMAIN` is the full domain, including `.cloudflareaccess.com`
+2. `CF_ACCESS_AUD` matches the AUD tag of the correct Access application
+3. Your email address is included in the Access policy allow list
+4. You ran `npm run deploy` after setting the secrets

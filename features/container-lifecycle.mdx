@@ -1,0 +1,77 @@
+---
+title: "Control the OpenClaw Container Lifecycle and Costs"
+sidebarTitle: "Container Lifecycle"
+description: "OpenClaw runs in a Cloudflare Sandbox container. Configure sleep behavior to balance cold-start latency against monthly compute costs."
+---
+
+OpenClaw runs inside a Cloudflare Sandbox container — a `standard-1` instance with 1/2 vCPU, 4 GiB RAM, and 8 GB of disk. By default, the container stays alive indefinitely so that your assistant is always ready the moment you open the Control UI. However, keeping the container running around the clock has a cost, and for infrequent use it may be more economical to let it sleep when idle. This page explains how to configure that trade-off.
+
+## Default Behavior: Always On
+
+Out of the box, `SANDBOX_SLEEP_AFTER` is set to `never`, meaning the container keeps running until you explicitly stop it or redeploy. This is the **recommended setting** for most users because:
+
+- Cold starts take **1–2 minutes** — a sleeping container has to boot the full OpenClaw runtime before it can respond.
+- Chat channel connections (Telegram, Discord, Slack) remain live and responsive.
+- There is no noticeable delay when you open the Control UI.
+
+If you access your assistant regularly, the convenience of an always-on container is worth the cost.
+
+## Configuring Sleep for Cost Savings
+
+If you use your assistant infrequently — for example, only a few hours each day — you can reduce your monthly bill by configuring the container to sleep after a period of inactivity:
+
+```bash
+npx wrangler secret put SANDBOX_SLEEP_AFTER
+# Enter a duration, for example:
+#   10m  — sleep after 10 minutes of inactivity
+#   30m  — sleep after 30 minutes
+#   1h   — sleep after 1 hour
+```
+
+After setting the secret, redeploy:
+
+```bash
+npm run deploy
+```
+
+Valid duration formats include `10m`, `30m`, `1h`, and similar time strings. Set the value back to `never` at any time to disable automatic sleep.
+
+## What Happens When the Container Wakes
+
+When the container is asleep and a new request arrives — whether from the Control UI, a chat channel, or the Admin UI — Cloudflare automatically starts a cold boot. You should expect:
+
+- **1–2 minutes** before the first response is available.
+- The request that triggered the wake-up will wait (or time out) during this period.
+- Once the container is running again, all subsequent requests are fast.
+
+<Note>
+  If you have R2 storage configured, all your paired devices, conversation history, and configuration are automatically restored from R2 on startup. Without R2, the container starts with a clean slate after each sleep.
+</Note>
+
+## Cost Comparison
+
+The table below shows approximate monthly costs for two typical usage patterns, based on a `standard-1` container instance and Cloudflare's published pricing. Your actual costs will vary with usage.
+
+| Configuration | Estimated Monthly Cost |
+|---------------|----------------------|
+| Always-on (default, `SANDBOX_SLEEP_AFTER=never`) | ~$34.50/mo |
+| Sleep after 10 minutes, ~4 hours of use per day | ~$10–11/mo |
+
+The always-on estimate assumes the container runs 24/7. The sleep estimate assumes roughly 4 hours of active use per day, with the container sleeping the rest of the time.
+
+<Tip>
+  If you use your assistant infrequently, set `SANDBOX_SLEEP_AFTER=10m` and enable R2 storage. You'll cut your compute costs significantly while ensuring that your paired devices and conversation history survive each restart.
+</Tip>
+
+## Instance Specifications
+
+Your OpenClaw deployment uses the following container instance type:
+
+| Resource | Specification |
+|----------|--------------|
+| Instance type | `standard-1` |
+| vCPU | 1/2 vCPU |
+| Memory | 4 GiB RAM |
+| Disk | 8 GB |
+
+For a full breakdown of how each resource is billed, including the included free tiers and per-unit overage rates, see the [requirements and cost estimate](/requirements) page.

@@ -1,47 +1,110 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Deploy OpenClaw to Cloudflare Workers in Minutes"
+sidebarTitle: "Quickstart"
+description: "Deploy the OpenClaw personal AI assistant on Cloudflare Workers in five steps. Covers npm install, secrets setup, deploy, and accessing the Control UI."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+You can go from zero to a running personal AI assistant on Cloudflare's global network in under ten minutes. The steps below walk you through installing dependencies, wiring up your secrets, deploying the Worker, and opening the Control UI for the first time.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+<Note>
+  You must be on the **Cloudflare Workers Paid plan** ($5/month) before you begin — Sandbox containers are not available on the free tier. See [Requirements](/requirements) for the full list of prerequisites.
+</Note>
 
-## Prerequisites
+## One-Click Deploy
 
-Before you begin, you must have:
+If you prefer not to use the CLI, click the button below to deploy directly from the Cloudflare dashboard. You will be prompted to enter your secrets through the UI instead of the terminal.
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/cloudflare/moltworker)
 
-## Get started
+Otherwise, follow the step-by-step CLI instructions below.
+
+---
+
+## CLI Deploy
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+  <Step title="Clone the repository and install dependencies">
+    Clone the project and install its Node.js dependencies with npm.
 
     ```bash
-    npm install your-package
+    git clone https://github.com/cloudflare/moltworker
+    cd moltworker
+    npm install
     ```
+
+    This installs Wrangler (the Cloudflare CLI) and all other build-time dependencies. You need **Node.js 18 or later** — run `node --version` to confirm.
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Set your AI provider API key">
+    OpenClaw needs access to an AI provider to power your assistant. Anthropic's Claude is the recommended default.
 
     ```bash
-    your-cli init
+    npx wrangler secret put ANTHROPIC_API_KEY
     ```
+
+    Paste your [Anthropic API key](https://console.anthropic.com/) when prompted. If you prefer OpenAI, set `OPENAI_API_KEY` instead. If you want to route requests through Cloudflare AI Gateway (for caching and analytics), see the [AI Gateway setup](/configuration/ai-providers) guide.
+
+    <Tip>
+      You only need **one** AI provider key to get started. You can add more providers or switch to AI Gateway later.
+    </Tip>
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Generate and set your gateway token">
+    The gateway token protects access to your Control UI. Generate a cryptographically random token and push it to Wrangler in one go — and save it somewhere safe, because you'll need it every time you open the UI.
 
     ```bash
-    your-cli start
+    export MOLTBOT_GATEWAY_TOKEN=$(openssl rand -hex 32)
+    echo "Your gateway token: $MOLTBOT_GATEWAY_TOKEN"
+    echo "$MOLTBOT_GATEWAY_TOKEN" | npx wrangler secret put MOLTBOT_GATEWAY_TOKEN
     ```
+
+    <Warning>
+      Store the value printed by the `echo` command before continuing. You cannot retrieve it from Cloudflare after this step — if you lose it, you will need to generate and set a new one.
+    </Warning>
+  </Step>
+
+  <Step title="Deploy to Cloudflare">
+    Build the front-end assets and deploy the Worker in a single command.
+
+    ```bash
+    npm run deploy
+    ```
+
+    Wrangler will print your Worker URL when the deploy completes — it will look like `https://moltbot-sandbox.<your-subdomain>.workers.dev`. Keep this URL handy.
+  </Step>
+
+  <Step title="Open the Control UI">
+    Navigate to your Worker URL and pass the gateway token as a query parameter.
+
+    ```
+    https://your-worker.workers.dev/?token=YOUR_GATEWAY_TOKEN
+    ```
+
+    Replace `your-worker` with your actual Worker subdomain and `YOUR_GATEWAY_TOKEN` with the token you saved in Step 3.
+
+    <Note>
+      **First request takes 1–2 minutes.** The Sandbox container needs to boot on the initial request. Subsequent requests are much faster. If you see a timeout, wait a moment and refresh the page.
+    </Note>
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Before You Can Use the Control UI
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Opening the URL above gets the container running, but **you cannot use the Control UI** until you complete two more one-time setup tasks:
+
+<Warning>
+  Skipping either step below will leave the Control UI inaccessible or your assistant unprotected. Complete both before inviting anyone else to use your assistant.
+</Warning>
+
+1. **Set up Cloudflare Access** — Cloudflare Access protects the Admin UI (`/_admin/`) and API routes from unauthenticated visitors. Follow the [Cloudflare Access setup guide](/configuration/cloudflare-access) to enable it on your Worker and push the two required secrets (`CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD`).
+
+2. **Pair your device** — Even after Access is configured, your browser is treated as an unknown device until you explicitly approve it. Follow the [Device Pairing guide](/features/device-pairing) to approve your first device through the Admin UI at `/_admin/`.
+
+Once both steps are done, your assistant is ready to use.
+
+## What's Next
+
+- [Configure Cloudflare Access](/configuration/cloudflare-access) — protect the admin panel with your identity provider.
+- [Device Pairing](/features/device-pairing) — approve your browser and other clients.
+- [Enable R2 Persistence](/configuration/persistent-storage) — keep conversation history and paired devices across container restarts.
+- [Connect Chat Channels](/features/chat-channels) — bring your assistant to Telegram, Discord, or Slack.

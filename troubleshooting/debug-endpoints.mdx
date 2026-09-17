@@ -1,0 +1,170 @@
+---
+title: "Debug Endpoints for OpenClaw Diagnostics"
+sidebarTitle: "Debug Endpoints"
+description: "Enable /debug/* routes to inspect container processes, view logs, and check versions. Requires DEBUG_ROUTES=true and Cloudflare Access authentication."
+---
+
+Debug endpoints give you a window into the running OpenClaw container from your browser or any HTTP client — without needing SSH access or a terminal session inside the container. You can use them to diagnose startup failures, inspect which processes are running, retrieve per-process logs, and confirm the container and OpenClaw versions that are currently deployed. Because they expose sensitive runtime information, debug endpoints are **disabled by default** and must be explicitly enabled, and they are always protected by Cloudflare Access authentication.
+
+## Enabling Debug Routes
+
+To turn on the `/debug/*` endpoints, set the `DEBUG_ROUTES` secret to `true` and redeploy your Worker:
+
+```bash
+npx wrangler secret put DEBUG_ROUTES
+# When prompted, enter: true
+
+npm run deploy
+```
+
+<Warning>
+Debug endpoints expose container internals including process lists and raw logs. **Never enable `DEBUG_ROUTES` without Cloudflare Access protecting your Worker.** If you haven't set up Cloudflare Access yet, follow the [Admin UI setup guide](/features/admin-ui) first.
+</Warning>
+
+Once the deployment completes, the endpoints listed below will be live at your Worker URL.
+
+## Available Endpoints
+
+| Method & Endpoint | Description |
+|---|---|
+| `GET /debug/processes` | List all processes currently running inside the container |
+| `GET /debug/logs?id=<process_id>` | Retrieve the log output for a specific process |
+| `GET /debug/version` | Return container and OpenClaw version information |
+
+All endpoints require a valid Cloudflare Access session cookie. If you are not already authenticated, Cloudflare will redirect you to your identity provider before granting access.
+
+---
+
+### `GET /debug/processes`
+
+Returns a JSON array of every process running inside the container. Use this endpoint first to discover the process IDs you need for log retrieval.
+
+**Example response:**
+
+```json
+[
+  {
+    "id": "openclaw-gateway",
+    "name": "openclaw-gateway",
+    "status": "running",
+    "pid": 42,
+    "uptime": "3m 17s"
+  },
+  {
+    "id": "r2-sync",
+    "name": "r2-sync-cron",
+    "status": "running",
+    "pid": 87,
+    "uptime": "3m 10s"
+  },
+  {
+    "id": "startup",
+    "name": "start-openclaw.sh",
+    "status": "exited",
+    "pid": 1,
+    "uptime": null
+  }
+]
+```
+
+The `id` field from each object is what you pass to `/debug/logs` in the next step.
+
+---
+
+### `GET /debug/logs?id=<process_id>`
+
+Returns the captured log output for the process identified by `<process_id>`. Replace `<process_id>` with the `id` value from the `/debug/processes` response.
+
+**Example request:**
+
+```
+GET /debug/logs?id=openclaw-gateway
+```
+
+**Example response:**
+
+```json
+{
+  "id": "openclaw-gateway",
+  "logs": [
+    "[2025-07-10T08:01:22Z] INFO  Gateway starting on port 3000",
+    "[2025-07-10T08:01:23Z] INFO  R2 storage mounted at /root/.clawd",
+    "[2025-07-10T08:01:23Z] INFO  Restored 2 paired device(s) from R2 backup",
+    "[2025-07-10T08:01:24Z] INFO  WebSocket listener ready",
+    "[2025-07-10T08:01:24Z] INFO  Gateway ready"
+  ]
+}
+```
+
+<Note>
+Logs are captured from the process's standard output and standard error streams. If a process exited unexpectedly, the last few log lines are usually the most useful for diagnosing the cause.
+</Note>
+
+---
+
+### `GET /debug/version`
+
+Returns version information for both the container base image and the OpenClaw build running inside it.
+
+**Example response:**
+
+```json
+{
+  "container": {
+    "image": "moltbot-sandbox",
+    "built": "2025-07-09T14:30:00Z",
+    "base": "debian:bookworm-slim"
+  },
+  "openclaw": {
+    "version": "0.9.4",
+    "commit": "a3f8c21"
+  }
+}
+```
+
+Use this endpoint to confirm that a fresh deployment picked up the version you expected, or to include version details when filing a bug report.
+
+---
+
+## How to Retrieve Logs Step by Step
+
+<Steps>
+  <Step title="Call /debug/processes">
+    Open `https://your-worker.workers.dev/debug/processes` in your browser (or with `curl`). Authenticate via Cloudflare Access if prompted.
+
+    Locate the process whose logs you need and copy its `id` value.
+  </Step>
+  <Step title="Call /debug/logs with the process ID">
+    Open `https://your-worker.workers.dev/debug/logs?id=<process_id>`, replacing `<process_id>` with the value you copied.
+
+    The response contains the captured log output for that process.
+  </Step>
+  <Step title="Look for error lines">
+    Scan the log array for lines containing `ERROR`, `WARN`, or a non-zero exit code. These usually pinpoint the root cause of a startup or runtime failure.
+  </Step>
+</Steps>
+
+## Disabling Debug Routes
+
+When you no longer need the debug endpoints, remove the secret or set it to `false` and redeploy:
+
+```bash
+npx wrangler secret put DEBUG_ROUTES
+# When prompted, enter: false
+
+npm run deploy
+```
+
+The `/debug/*` routes will return `404 Not Found` after the next deployment completes.
+
+## Live Log Streaming
+
+The `/debug/logs` endpoint returns a **snapshot** of captured output — it is not a live stream. For real-time log streaming while you're actively debugging, use `wrangler tail` in your terminal instead:
+
+```bash
+npx wrangler tail
+```
+
+<Tip>
+`npx wrangler tail` streams all Worker invocation logs in real time, including errors thrown by the gateway or the container supervisor. It's the fastest way to watch what's happening as requests come in, and it works even before debug routes are enabled.
+</Tip>

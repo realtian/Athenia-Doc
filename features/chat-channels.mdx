@@ -1,0 +1,120 @@
+---
+title: "Connect Telegram, Discord, and Slack to OpenClaw"
+sidebarTitle: "Chat Channels"
+description: "Add Telegram, Discord, or Slack to OpenClaw for multi-channel AI conversations. Each channel requires a bot token and a redeploy."
+---
+
+In addition to the browser-based Control UI, OpenClaw supports three optional chat channels: Telegram, Discord, and Slack. Enabling a channel lets you (or others you approve) chat with your assistant directly through that platform's native DM interface, so you can reach your assistant wherever you already spend time. Each channel is opt-in — add only the ones you want, and you can enable them one at a time.
+
+## Overview
+
+All three channels follow the same pattern:
+
+1. Create a bot on the platform (Telegram BotFather, Discord Developer Portal, or Slack App configuration).
+2. Store the required token(s) as Wrangler secrets.
+3. Redeploy your worker — OpenClaw picks up the new credentials on startup.
+
+Once a channel is active, new DMs are governed by the [device pairing](/features/device-pairing) policy you've configured. By default (`pairing`), every new conversation requires admin approval via `/_admin/` before messages are exchanged.
+
+## Setting Up Each Channel
+
+<Tabs>
+  <Tab title="Telegram">
+    ### Telegram Setup
+
+    Create a bot with [BotFather](https://t.me/BotFather) (`/newbot`), copy the bot token, then run:
+
+    ```bash
+    npx wrangler secret put TELEGRAM_BOT_TOKEN
+    npm run deploy
+    ```
+
+    #### DM Policy
+
+    Control who can start a conversation with your Telegram bot:
+
+    ```bash
+    npx wrangler secret put TELEGRAM_DM_POLICY
+    # Enter: pairing  (default — requires admin approval per new user)
+    # Or:    open     (anyone who DMs the bot can chat immediately)
+    ```
+
+    | Value | Behaviour |
+    |-------|-----------|
+    | `pairing` | New DMs are held pending until approved in `/_admin/` |
+    | `open` | Any user can DM the bot without approval |
+
+    <Note>
+      After enabling Telegram, the first time each user DMs your bot they'll be held pending (if using the default `pairing` policy). Visit `/_admin/` to approve them.
+    </Note>
+  </Tab>
+
+  <Tab title="Discord">
+    ### Discord Setup
+
+    Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications), copy the bot token, then run:
+
+    ```bash
+    npx wrangler secret put DISCORD_BOT_TOKEN
+    npm run deploy
+    ```
+
+    #### DM Policy
+
+    Control who can start a conversation with your Discord bot:
+
+    ```bash
+    npx wrangler secret put DISCORD_DM_POLICY
+    # Enter: pairing  (default — requires admin approval per new user)
+    # Or:    open     (anyone who DMs the bot can chat immediately)
+    ```
+
+    | Value | Behaviour |
+    |-------|-----------|
+    | `pairing` | New DMs are held pending until approved in `/_admin/` |
+    | `open` | Any user can DM the bot without approval |
+
+    <Note>
+      After enabling Discord, the first time each user DMs your bot they'll be held pending (if using the default `pairing` policy). Visit `/_admin/` to approve them.
+    </Note>
+  </Tab>
+
+  <Tab title="Slack">
+    ### Slack Setup
+
+    Slack requires two separate tokens: a **Bot Token** (for API calls) and an **App Token** (for the Socket Mode connection). Create a Slack App in the [Slack API console](https://api.slack.com/apps), enable Socket Mode to get an App Token, and copy both tokens. Then run:
+
+    ```bash
+    npx wrangler secret put SLACK_BOT_TOKEN
+    npx wrangler secret put SLACK_APP_TOKEN
+    npm run deploy
+    ```
+
+    <Note>
+      Both `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are required. Providing only one will prevent the Slack integration from starting.
+    </Note>
+
+    Slack does not have a separate DM policy secret — access is managed through your Slack workspace's own permissions and through OpenClaw's device pairing flow.
+  </Tab>
+</Tabs>
+
+## DM Policy in Detail
+
+The `pairing` and `open` policies apply to Telegram and Discord DMs:
+
+- **`pairing`** is the default and recommended setting for personal deployments. Each new user who messages your bot appears as a pending device in `/_admin/`. You approve them individually (or all at once) before they can interact with your assistant.
+- **`open`** removes that gate entirely — any user who discovers your bot and DMs it can start chatting right away. Only use `open` if you deliberately want public access to your assistant.
+
+<Warning>
+  Setting a DM policy to `open` means anyone who finds your bot can interact with your assistant without your explicit approval. Consider the sensitivity of your assistant's capabilities and data before choosing this option.
+</Warning>
+
+## After Adding a Channel
+
+Once you redeploy with a new channel's token(s) in place:
+
+- Existing paired devices (from other channels or the browser Control UI) are unaffected.
+- New connections from the newly added channel are subject to the DM policy — they'll need admin approval unless you've set the policy to `open`.
+- You don't need to remove or reconfigure other channels; all active channels run in parallel.
+
+For a full walkthrough of how approvals work, see [Device Pairing](/features/device-pairing).

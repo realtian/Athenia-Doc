@@ -1,0 +1,106 @@
+---
+title: "Requirements for Deploying OpenClaw on Cloudflare"
+sidebarTitle: "Requirements"
+description: "What you need before deploying OpenClaw: Cloudflare Workers Paid plan, an AI provider API key, Node.js, and optional add-ons for chat channels and storage."
+---
+
+Before you run a single command, make sure you have the accounts, keys, and tools listed on this page. The two hard requirements are a Cloudflare Workers Paid plan and an AI provider API key — everything else is optional and can be added after your assistant is already running.
+
+## Required
+
+### Cloudflare Workers Paid Plan
+
+OpenClaw runs inside a **Cloudflare Sandbox container** (a `standard-1` instance: ½ vCPU, 4 GiB memory, 8 GB disk). Sandbox containers are only available on the [Workers Paid plan](https://www.cloudflare.com/plans/developer-platform/) — the free tier does not support them.
+
+The Paid plan costs **$5/month** and includes your Workers quota. Container compute is billed on top of that; see [Container Cost Estimate](#container-cost-estimate) below.
+
+<Note>
+  If you try to run `npm run dev` or deploy without the Paid plan, Wrangler will return an `Unauthorized` error. Enable Cloudflare Containers in the [Containers dashboard](https://dash.cloudflare.com/?to=/:account/workers/containers) first.
+</Note>
+
+### AI Provider API Key
+
+OpenClaw needs an AI provider to generate responses. At least one of the following is required:
+
+- **Anthropic API key** (recommended) — Claude Sonnet is the default model. Get one at [console.anthropic.com](https://console.anthropic.com/).
+- **OpenAI API key** — set as `OPENAI_API_KEY` if you prefer GPT models.
+- **Cloudflare AI Gateway** — routes requests through Cloudflare's AI Gateway for caching, analytics, and [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/). Requires three secrets instead of one; see the [AI Gateway guide](/configuration/ai-providers).
+
+<Tip>
+  If you want a single Cloudflare bill with no separate Anthropic account, set up AI Gateway with Workers AI and Unified Billing — you won't need a third-party API key at all.
+</Tip>
+
+### Node.js 18+ and npm
+
+Wrangler (the Cloudflare CLI) runs on Node.js. You need **Node.js 18 or later** installed locally to run `npm install` and `npm run deploy`.
+
+```bash
+node --version   # should print v18.x.x or higher
+npm --version
+```
+
+If you need to install or upgrade Node.js, use [nvm](https://github.com/nvm-sh/nvm) or the official [Node.js downloads](https://nodejs.org/).
+
+---
+
+## Container Cost Estimate
+
+The `standard-1` container instance runs 24/7 by default. Below are approximate monthly costs based on [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/pricing/):
+
+| Resource | Provisioned | Monthly Usage | Free Included | Approx. Cost |
+|---|---|---|---|---|
+| Memory | 4 GiB | 2,920 GiB-hrs | 25 GiB-hrs | ~$26/mo |
+| CPU (~10% utilization) | ½ vCPU | ~2,190 vCPU-min | 375 vCPU-min | ~$2/mo |
+| Disk | 8 GB | 5,840 GB-hrs | 200 GB-hrs | ~$1.50/mo |
+| Workers Paid plan | — | — | — | $5/mo |
+| **Total** | | | | **~$34.50/mo** |
+
+<Info>
+  Memory and disk are billed on **provisioned capacity** for the full time the container is running. CPU is billed on **active usage only** — 10% utilization is a conservative baseline for a lightly-used personal assistant; your actual CPU cost will vary with how often you chat.
+</Info>
+
+### Reducing Costs with Sleep Mode
+
+If you use your assistant infrequently, configure the container to sleep after a period of inactivity. A container that runs only 4 hours per day costs roughly **$5–6/month in compute** on top of the $5 Workers plan.
+
+```bash
+npx wrangler secret put SANDBOX_SLEEP_AFTER
+# Enter a duration, e.g.: 10m
+```
+
+<Warning>
+  When the container sleeps, the next request triggers a **1–2 minute cold start**. If you have [R2 storage](/configuration/persistent-storage) configured, your paired devices and conversation history are restored automatically on wake. Without R2, data is lost on every restart.
+</Warning>
+
+---
+
+## Optional Features
+
+The following Cloudflare services all have **free tiers** and can be added after your initial deployment.
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare Access" icon="lock">
+    **Free tier available.** Required to protect the Admin UI (`/_admin/`) with proper authentication. Without it, your admin panel is accessible to anyone who knows your Worker URL. See [Cloudflare Access setup](/configuration/cloudflare-access).
+  </Card>
+  <Card title="Cloudflare R2" icon="database">
+    **Free tier available.** Enables persistent storage so paired devices, conversation history, and configuration survive container restarts. Requires three secrets: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `CF_ACCOUNT_ID`. See [R2 Persistence](/configuration/persistent-storage).
+  </Card>
+  <Card title="Cloudflare Browser Rendering" icon="globe">
+    **Free tier available.** Powers OpenClaw's browser automation capabilities — web scraping, screenshots, and automated browsing. Requires `CDP_SECRET` and `WORKER_URL` secrets. See [Browser Automation](/features/browser-automation).
+  </Card>
+  <Card title="Cloudflare AI Gateway" icon="cloud">
+    **Optional.** Routes AI inference through Cloudflare for caching, rate limiting, usage analytics, and Unified Billing. Requires `CLOUDFLARE_AI_GATEWAY_API_KEY`, `CF_AI_GATEWAY_ACCOUNT_ID`, and `CF_AI_GATEWAY_GATEWAY_ID`. See [AI Gateway](/configuration/ai-providers).
+  </Card>
+</CardGroup>
+
+### Chat Channel Credentials
+
+To connect OpenClaw to a chat platform, you need a bot token from that platform. All chat channels are optional.
+
+| Platform | Required Secrets | Where to Get Them |
+|---|---|---|
+| Telegram | `TELEGRAM_BOT_TOKEN` | [BotFather](https://t.me/BotFather) on Telegram |
+| Discord | `DISCORD_BOT_TOKEN` | [Discord Developer Portal](https://discord.com/developers/applications) |
+| Slack | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | [Slack API dashboard](https://api.slack.com/apps) |
+
+See [Chat Channels](/features/chat-channels) for full setup instructions for each platform.

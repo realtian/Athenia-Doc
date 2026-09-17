@@ -1,0 +1,190 @@
+---
+title: "Connect an AI Provider to OpenClaw"
+sidebarTitle: "AI Providers"
+description: "Configure OpenClaw to use Anthropic, OpenAI, Cloudflare Workers AI, or Groq via AI Gateway. At least one provider is required before deploying."
+---
+
+OpenClaw requires at least one AI provider to be configured before the gateway will start. Without a valid provider, the worker deploys successfully but the assistant itself will fail to respond. You have three main options: connect directly to Anthropic (the simplest path), connect directly to OpenAI, or route requests through Cloudflare AI Gateway (recommended for production). All provider configuration is done through Wrangler secrets — run each `npx wrangler secret put` command, then redeploy.
+
+<Note>
+  **Priority order:** If you set multiple providers, OpenClaw uses the first one it finds in this order: **Cloudflare AI Gateway → Direct Anthropic → Direct OpenAI → Legacy Gateway**. You only need one.
+</Note>
+
+---
+
+<Tabs>
+  <Tab title="Direct Anthropic (Simplest)">
+    The fastest way to get started. Set your Anthropic API key and deploy — no additional Cloudflare configuration needed.
+
+    **When to use this:** You already have an Anthropic API key and want to get OpenClaw running quickly. This connects your worker directly to `api.anthropic.com`.
+
+    ### Step 1: Get your Anthropic API key
+
+    Sign in to [console.anthropic.com](https://console.anthropic.com/), open **API Keys**, and create a new key. Copy the value — it starts with `sk-ant-`.
+
+    ### Step 2: Set the secret
+
+    ```bash
+    npx wrangler secret put ANTHROPIC_API_KEY
+    ```
+
+    When prompted, paste your API key.
+
+    ### Step 3: Deploy
+
+    ```bash
+    npm run deploy
+    ```
+
+    That's it. OpenClaw will use Claude Sonnet as its default model.
+
+    ### Optional: Custom base URL
+
+    If you are routing Anthropic traffic through your own proxy or a compatible API endpoint, you can override the base URL:
+
+    ```bash
+    npx wrangler secret put ANTHROPIC_BASE_URL
+    # Enter: https://your-proxy.example.com
+    ```
+
+    Leave this unset to use Anthropic's standard endpoint.
+  </Tab>
+
+  <Tab title="Direct OpenAI">
+    Configure OpenClaw to use OpenAI's models instead of, or in addition to, Anthropic. OpenAI is used as a fallback when no Anthropic key or AI Gateway is configured.
+
+    **When to use this:** You prefer GPT models, or you want an additional provider alongside Anthropic.
+
+    ### Step 1: Get your OpenAI API key
+
+    Sign in to [platform.openai.com](https://platform.openai.com/), go to **API Keys**, and create a new secret key. Copy it — it starts with `sk-`.
+
+    ### Step 2: Set the secret
+
+    ```bash
+    npx wrangler secret put OPENAI_API_KEY
+    ```
+
+    When prompted, paste your key.
+
+    ### Step 3: Deploy
+
+    ```bash
+    npm run deploy
+    ```
+
+    <Note>
+      If you have both `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` set, OpenClaw uses Anthropic. OpenAI serves as a fallback. To use OpenAI exclusively, set only `OPENAI_API_KEY`.
+    </Note>
+  </Tab>
+
+  <Tab title="Cloudflare AI Gateway (Recommended)">
+    Route all AI requests through [Cloudflare AI Gateway](https://developers.cloudflare.com/ai-gateway/) for request analytics, caching, rate limiting, and cost visibility. This is the recommended approach for production deployments.
+
+    **When to use this:** You want observability into AI usage, caching to reduce costs, or you want to use Workers AI models with Unified Billing.
+
+    ### How AI Gateway works
+
+    AI Gateway acts as a proxy between OpenClaw and your AI provider. Requests go to `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic` instead of directly to `api.anthropic.com`. You still need a provider API key — the gateway forwards it to the upstream provider on your behalf. When configured, AI Gateway takes precedence over all direct provider keys.
+
+    ### Step 1: Create an AI Gateway
+
+    1. Open the [AI Gateway section](https://dash.cloudflare.com/?to=/:account/ai/ai-gateway/create-gateway) of the Cloudflare dashboard.
+    2. Click **Create Gateway** and give it a name (e.g., `openclaw-gateway`).
+    3. On the gateway overview page, note your **Gateway ID** — you'll need it in the next step.
+
+    ### Step 2: Set the three required secrets
+
+    All three secrets are required. If any one is missing, the gateway configuration is ignored and OpenClaw falls back to direct provider keys.
+
+    ```bash
+    # Your AI provider's API key (e.g., your Anthropic key sk-ant-...)
+    # This is forwarded through the gateway to the upstream provider
+    npx wrangler secret put CLOUDFLARE_AI_GATEWAY_API_KEY
+
+    # Your Cloudflare account ID
+    npx wrangler secret put CF_AI_GATEWAY_ACCOUNT_ID
+
+    # The Gateway ID from the overview page (e.g., "openclaw-gateway")
+    npx wrangler secret put CF_AI_GATEWAY_GATEWAY_ID
+    ```
+
+    <Tip>
+      Find your **Account ID** in the [Cloudflare Dashboard](https://dash.cloudflare.com/) by clicking the three dots next to your account name and selecting **Copy Account ID**.
+    </Tip>
+
+    ### Step 3: Deploy
+
+    ```bash
+    npm run deploy
+    ```
+
+    ### Choosing a model
+
+    By default, AI Gateway uses Anthropic's Claude Sonnet 4.5. To use a different model or provider, set `CF_AI_GATEWAY_MODEL` using the format `provider/model-id`:
+
+    ```bash
+    npx wrangler secret put CF_AI_GATEWAY_MODEL
+    # Enter one of the values from the table below
+    ```
+
+    | Provider | `CF_AI_GATEWAY_MODEL` value | API key for `CLOUDFLARE_AI_GATEWAY_API_KEY` |
+    |----------|-----------------------------|---------------------------------------------|
+    | Anthropic (default) | `anthropic/claude-sonnet-4-5` | Anthropic API key |
+    | OpenAI | `openai/gpt-4o` | OpenAI API key |
+    | Groq | `groq/llama-3.3-70b` | Groq API key |
+    | Workers AI | `workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Cloudflare API token (or use Unified Billing) |
+
+    <Warning>
+      `CLOUDFLARE_AI_GATEWAY_API_KEY` must match the provider you select in `CF_AI_GATEWAY_MODEL`. The gateway forwards this key to the upstream provider — mixing an Anthropic key with an OpenAI model will result in authentication errors.
+    </Warning>
+
+    You can only target one provider through the gateway at a time. To use multiple providers simultaneously, set `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` alongside the gateway config — those are used for non-gateway requests only.
+
+    ### Workers AI with Unified Billing
+
+    With [Unified Billing](https://developers.cloudflare.com/ai-gateway/features/unified-billing/), you can run Workers AI models without a separate provider API key. Cloudflare bills you directly for model usage.
+
+    To use Unified Billing, set `CLOUDFLARE_AI_GATEWAY_API_KEY` to your [AI Gateway authentication token](https://developers.cloudflare.com/ai-gateway/configuration/authentication/) (the `cf-aig-authorization` token) instead of a provider API key, then choose a `workers-ai/` model:
+
+    ```bash
+    npx wrangler secret put CLOUDFLARE_AI_GATEWAY_API_KEY
+    # Enter: your cf-aig-authorization token
+
+    npx wrangler secret put CF_AI_GATEWAY_MODEL
+    # Enter: workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast
+    ```
+  </Tab>
+
+  <Tab title="Legacy Gateway (Deprecated)">
+    An earlier configuration approach using `AI_GATEWAY_API_KEY` and `AI_GATEWAY_BASE_URL` is still supported for backward compatibility, but is deprecated. You should migrate to the Cloudflare AI Gateway option above.
+
+    **The legacy variables:**
+
+    ```bash
+    # Deprecated - use CLOUDFLARE_AI_GATEWAY_API_KEY instead
+    npx wrangler secret put AI_GATEWAY_API_KEY
+
+    # Deprecated - use CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID instead
+    npx wrangler secret put AI_GATEWAY_BASE_URL
+    # Enter: https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/anthropic
+    ```
+
+    <Warning>
+      The legacy gateway configuration is no longer maintained and may be removed in a future release. Migrate to the three `CF_AI_GATEWAY_*` secrets at your earliest convenience.
+    </Warning>
+  </Tab>
+</Tabs>
+
+---
+
+## Provider Priority Order
+
+When multiple providers are configured, OpenClaw selects one using this priority:
+
+1. **Cloudflare AI Gateway** — all three `CF_AI_GATEWAY_*` secrets are present
+2. **Direct Anthropic** — `ANTHROPIC_API_KEY` is set
+3. **Direct OpenAI** — `OPENAI_API_KEY` is set
+4. **Legacy Gateway** — `AI_GATEWAY_API_KEY` + `AI_GATEWAY_BASE_URL` are set
+
+Only one provider is active at a time. Setting multiple providers does not cause errors — lower-priority providers are simply ignored.

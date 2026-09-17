@@ -1,0 +1,84 @@
+{
+  "projectType": "saas",
+  "projectName": "OpenClaw on Cloudflare",
+  "projectDescription": "Deploy the OpenClaw personal AI assistant on Cloudflare's serverless infrastructure, with multi-channel chat support, device pairing authentication, browser automation, and optional persistent storage — no self-hosting required.",
+  "theme": "luma",
+  "primaryColor": "#fc5c0b",
+  "lightColor": "#fcb87a",
+  "darkColor": "#040404",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "requirements"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/secrets-reference",
+              "configuration/ai-providers",
+              "configuration/cloudflare-access",
+              "configuration/persistent-storage"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/admin-ui",
+              "features/device-pairing",
+              "features/chat-channels",
+              "features/browser-automation",
+              "features/container-lifecycle"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/common-issues",
+              "troubleshooting/debug-endpoints"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "One-click deploy to Cloudflare Workers with no server management",
+    "Web-based Control UI with real-time WebSocket chat",
+    "Multi-channel support: Telegram, Discord, and Slack",
+    "Device pairing authentication with explicit per-device approval",
+    "Persistent storage via Cloudflare R2 across container restarts",
+    "Browser automation with Chrome DevTools Protocol (CDP) shim",
+    "Cloudflare AI Gateway integration for caching, analytics, and rate limiting",
+    "Admin UI for device management, R2 backup status, and gateway control",
+    "Configurable container sleep for cost optimization",
+    "Support for Anthropic, OpenAI, Workers AI, and Groq via AI Gateway"
+  ],
+  "publicApiSurface": [
+    "GET /api/status — public health/status endpoint",
+    "GET /debug/processes — list container processes (requires DEBUG_ROUTES=true)",
+    "GET /debug/logs?id=<process_id> — get logs for a process",
+    "GET /debug/version — container and OpenClaw version info",
+    "GET /cdp/json/version — browser version information",
+    "GET /cdp/json/list — list available browser targets",
+    "GET /cdp/json/new — create a new browser target",
+    "WS /cdp/devtools/browser/{id} — WebSocket CDP connection",
+    "WS /ws?token=<MOLTBOT_GATEWAY_TOKEN> — WebSocket gateway connection",
+    "/_admin/ — Admin UI for device and storage management",
+    "MOLTBOT_GATEWAY_TOKEN secret — token for Control UI access",
+    "SANDBOX_SLEEP_AFTER secret — container idle sleep duration",
+    "R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / CF_ACCOUNT_ID — R2 persistence",
+    "TELEGRAM_BOT_TOKEN / DISCORD_BOT_TOKEN / SLACK_BOT_TOKEN — chat channels",
+    "CDP_SECRET / WORKER_URL — browser automation secrets",
+    "ANTHROPIC_API_KEY / OPENAI_API_KEY — direct AI provider keys",
+    "CLOUDFLARE_AI_GATEWAY_API_KEY + CF_AI_GATEWAY_ACCOUNT_ID + CF_AI_GATEWAY_GATEWAY_ID — AI Gateway",
+    "CF_AI_GATEWAY_MODEL — override AI model (e.g. workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast)"
+  ]
+}

@@ -1,0 +1,72 @@
+---
+title: "Secure Device Pairing for OpenClaw Connections"
+sidebarTitle: "Device Pairing"
+description: "OpenClaw requires explicit approval for each new device or chat-platform connection. Learn how device pairing works and how to approve devices in the Admin UI."
+---
+
+Device pairing is the mechanism OpenClaw uses to control which browsers and chat clients are allowed to talk to your assistant. Every new connection — whether it's a browser tab opening the Control UI or a Telegram DM arriving for the first time — is held in a pending state until you, as the admin, explicitly approve it. This means no one can interact with your assistant unless you've personally granted them access.
+
+## Why Device Pairing Exists
+
+Device pairing is the most secure authentication option available in OpenClaw. Rather than relying solely on a shared secret (the gateway token), every individual device must be vouched for by an admin. This limits the blast radius if your gateway token is ever exposed: possessing the token alone isn't enough to start chatting — the device still needs approval.
+
+## How the Pairing Flow Works
+
+<Steps>
+  <Step title="A device connects">
+    A browser opens the Control UI with a valid gateway token, or a user sends a DM to your Telegram, Discord, or Slack bot for the first time.
+  </Step>
+  <Step title="The connection is held pending">
+    OpenClaw recognises the device as new and puts the connection on hold. The user sees a waiting state; no messages are processed yet.
+  </Step>
+  <Step title="An admin approves the device">
+    You visit `/_admin/` (authenticated via Cloudflare Access), find the pending request in the **Device Pairing** section, and click **Approve** — or **Approve All** to clear the queue.
+  </Step>
+  <Step title="The device connects freely going forward">
+    Once approved, the device is remembered. Future connections from the same device are allowed immediately without requiring another approval.
+  </Step>
+</Steps>
+
+## The Gateway Token
+
+A gateway token is required to reach the Control UI when your worker is deployed remotely. You generate this token during setup and store it as the `MOLTBOT_GATEWAY_TOKEN` secret. Pass it as a query parameter every time you open the Control UI:
+
+```
+https://your-worker.workers.dev/?token=YOUR_TOKEN
+```
+
+For WebSocket clients, append the same parameter to the WebSocket URL:
+
+```
+wss://your-worker.workers.dev/ws?token=YOUR_TOKEN
+```
+
+<Warning>
+  Never share your gateway token with anyone. It grants access to your Control UI. Store it in a password manager and treat it like a private key.
+</Warning>
+
+<Note>
+  Even with a valid gateway token, **new devices still require admin approval** via `/_admin/` before they can interact with your assistant. The token and device pairing are separate layers of authentication.
+</Note>
+
+## DM Policy for Chat Channels
+
+When you connect Telegram or Discord to OpenClaw, each channel's DM behaviour is controlled by a policy secret:
+
+| Secret | Values | Default |
+|--------|--------|---------|
+| `TELEGRAM_DM_POLICY` | `pairing` or `open` | `pairing` |
+| `DISCORD_DM_POLICY` | `pairing` or `open` | `pairing` |
+
+- **`pairing`** (default) — every new DM triggers a pending approval request. The user must wait until an admin approves their device in `/_admin/` before the conversation can begin. This is the recommended setting for personal deployments.
+- **`open`** — any user who DMs your bot is allowed to chat immediately, without admin approval. Use this only if you intentionally want your bot to be accessible to anyone who finds it.
+
+To change the policy, set the appropriate secret and redeploy:
+
+```bash
+npx wrangler secret put TELEGRAM_DM_POLICY
+# Enter: open
+npm run deploy
+```
+
+For full details on configuring Telegram, Discord, and Slack, see [Chat Channels](/features/chat-channels).

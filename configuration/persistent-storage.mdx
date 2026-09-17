@@ -1,0 +1,130 @@
+---
+title: "Enable Persistent Storage with Cloudflare R2"
+sidebarTitle: "Persistent Storage"
+description: "Configure R2 storage to persist OpenClaw chat history, paired devices, and configuration across container restarts. Requires three R2 secrets."
+---
+
+By default, OpenClaw stores all of its data — paired devices, conversation history, and configuration — inside the sandbox container's ephemeral filesystem. When the container restarts (due to a code deploy, a manual restart from the admin UI, or the container sleeping and waking), that data is gone. You'll need to re-pair your devices and your chat history will not carry over.
+
+Connecting Cloudflare R2 gives OpenClaw durable storage that survives restarts. A background process backs up the OpenClaw config directory to R2 every five minutes, and restores it automatically whenever the container starts up. This is optional, but strongly recommended for any deployment you plan to use beyond initial testing.
+
+---
+
+## What Gets Persisted
+
+When R2 is configured, the following data survives container restarts:
+
+- **Paired devices** — browsers, CLI clients, and chat platform DMs that you've already approved
+- **Conversation history** — past chat sessions and context
+- **OpenClaw configuration** — gateway settings and any customisations you've made
+
+Without R2, all of this is lost every time the container restarts.
+
+---
+
+## How It Works
+
+R2 storage uses a straightforward backup and restore approach:
+
+- **On container startup:** if R2 contains a previous backup, it is restored into the OpenClaw config directory before the gateway starts. OpenClaw uses its default config paths — no special configuration inside the assistant is needed.
+- **During operation:** a cron job runs every 5 minutes and syncs the current OpenClaw config directory to R2.
+- **On demand:** you can trigger an immediate backup at any time using the **Backup Now** button in the admin UI at `/_admin/`.
+
+---
+
+## Setup
+
+<Steps>
+  <Step title="Go to R2 in the Cloudflare dashboard">
+    Open the [Cloudflare Dashboard](https://dash.cloudflare.com/) and navigate to **R2** → **Overview**.
+  </Step>
+
+  <Step title="Open R2 API token management">
+    Click **Manage R2 API Tokens** on the R2 overview page.
+  </Step>
+
+  <Step title="Create a new API token">
+    Click **Create API token** and configure it as follows:
+
+    - **Permissions:** Object Read & Write
+    - **Bucket:** select `moltbot-data` (this bucket is created automatically on your first deploy)
+
+    <Note>
+      If `moltbot-data` does not appear in the bucket list, deploy your worker at least once first with `npm run deploy`. The bucket is provisioned during deployment.
+    </Note>
+  </Step>
+
+  <Step title="Copy your credentials">
+    After creating the token, you'll see the **Access Key ID** and **Secret Access Key** displayed on screen. Copy both values now — the Secret Access Key is shown only once and cannot be retrieved again.
+  </Step>
+
+  <Step title="Find your Account ID">
+    Go back to the main [Cloudflare Dashboard](https://dash.cloudflare.com/). Click the three dots (`...`) next to your account name in the top navigation and select **Copy Account ID**.
+  </Step>
+
+  <Step title="Set the three R2 secrets">
+    All three secrets must be set together. If any one is missing, R2 will not be mounted and storage will remain ephemeral.
+
+    ```bash
+    npx wrangler secret put R2_ACCESS_KEY_ID
+
+    npx wrangler secret put R2_SECRET_ACCESS_KEY
+
+    npx wrangler secret put CF_ACCOUNT_ID
+    ```
+
+    Enter each value when prompted.
+  </Step>
+
+  <Step title="Redeploy">
+    ```bash
+    npm run deploy
+    ```
+
+    The next time the container starts, it will check R2 for a backup before the gateway launches.
+  </Step>
+</Steps>
+
+---
+
+## Verifying R2 Is Active
+
+After redeploying, open the admin UI at `/_admin/`. When R2 is correctly configured and connected, you will see:
+
+- **R2 Storage Status:** a status indicator showing that R2 is mounted
+- **Last backup:** a timestamp showing when the most recent automatic backup completed
+- **Backup Now:** a button that triggers an immediate sync to R2
+
+If R2 is not showing as active, check that all three secrets are set correctly by running:
+
+```bash
+npx wrangler secret list
+```
+
+All three of `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `CF_ACCOUNT_ID` should appear in the output.
+
+---
+
+## Triggering a Manual Backup
+
+You can force an immediate backup from the admin UI at any time:
+
+1. Open `/_admin/` in your browser (you'll need to authenticate via Cloudflare Access)
+2. In the **R2 Storage** section, click **Backup Now**
+3. The timestamp updates to confirm the backup completed
+
+This is useful before a planned redeploy or restart — trigger a backup immediately beforehand so the restore on startup picks up your most recent data rather than the last automatic snapshot.
+
+---
+
+## Container Restarts and Sleeps
+
+If you have configured `SANDBOX_SLEEP_AFTER` to let the container sleep when idle, R2 ensures your data is waiting when it wakes up. The restore happens automatically before the gateway process starts, so from your perspective the assistant continues exactly where it left off — paired devices intact, conversation history available.
+
+Cold starts still take 1–2 minutes while the container image is loaded and the backup is restored from R2.
+
+---
+
+<Warning>
+  **R2 storage does not work with `wrangler dev`.** The R2 mount is only available when running in production on Cloudflare's infrastructure. During local development with `wrangler dev`, the worker runs without R2 regardless of whether the secrets are set, and all data will be ephemeral for that session.
+</Warning>
